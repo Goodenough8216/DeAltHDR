@@ -77,7 +77,7 @@ dir_data: ['/path/to/your/dataset/']
 ---
 
 ## 🏋️ Training
-
+## Synthetic Pre-training
 ```bash
 python train_dealthdr.py -opt options/DeAltHDR.yml --launcher none
 ```
@@ -88,13 +88,34 @@ For distributed training:
 python -m torch.distributed.launch --nproc_per_node=8 --master_port=8080 \
     train_dealthdr.py -opt options/DeAltHDR.yml --launcher pytorch
 ```
+## Real-World Self-Supervised Fine-tuning
+
+```bash
+python train_dealthdr_real.py -opt options/DeAltHDR_Real.yml --launcher none
+```
+
+Before training, set in `options/DeAltHDR_Real.yml`:
+
+- `dir_data`: path to real training data
+- `path.pretrain_network_g`: path to Stage-1 checkpoint
+
+Checkpoints are saved under `experiments/DeAltHDR_real_selfsup/models/` (`net_g` and `net_g_ema`).
 
 ---
 
 ## 🧪 Testing
+## Synthetic Testing & Metrics
 
 ```bash
 python test_dealthdr.py -opt options/DeAltHDR.yml
+python eval_syn_metrics.py
+```
+
+## Real-World Inference & Metrics
+
+```bash
+python test_dealthdr_real.py -opt options/DeAltHDR_Real.yml
+python eval_real_metrics.py
 ```
 
 ---
