@@ -18,7 +18,8 @@ from tqdm import tqdm
 
 MU = 5000.0
 LOG_DENOM = math.log(1.0 + MU)
-VIS_RANGE = 65535.0
+VIS_RANGE = 255.0
+# VIS_RANGE = 65535.0
 
 
 def mulaw_tone_map(hdr: np.ndarray) -> np.ndarray:
@@ -231,23 +232,35 @@ def calc_hdr_vdp2(
     return float(np.clip(Q, 0.0, 100.0))
 
 
-def iter_syn_test(dataroot: str, pred_dir: str, gt_name: str = 'rgb_vis_gt.png'):
-    test_root = os.path.join(dataroot, 'Test')
-    if not os.path.isdir(test_root):
-        raise FileNotFoundError(f'Test folder not found: {test_root}')
-    for scene in sorted(os.listdir(test_root)):
-        scene_dir = os.path.join(test_root, scene)
-        if not os.path.isdir(scene_dir):
+def iter_syn_test(gt_dir: str, pred_dir: str, start_scene: int, end_scene: int):
+    gt_root = Path(gt_dir)
+    pred_root = Path(pred_dir)
+    
+    if not gt_root.is_dir():
+        raise FileNotFoundError(f'GT folder not found: {gt_root}')
+        
+    for scene_path in sorted(gt_root.iterdir()):
+        if not scene_path.is_dir():
             continue
-        for image_id in sorted(os.listdir(scene_dir)):
-            img_dir = os.path.join(scene_dir, image_id)
-            if not os.path.isdir(img_dir):
+            
+        try:
+            scene_num = int(scene_path.name)
+            if not (start_scene <= scene_num <= end_scene):
                 continue
-            gt_path   = os.path.join(img_dir, gt_name)
-            pred_path = os.path.join(pred_dir, scene, f'{image_id}.png')
-            if os.path.isfile(gt_path) and os.path.isfile(pred_path):
-                yield pred_path, gt_path, f'{scene}/{image_id}'
-            elif os.path.isfile(gt_path):
+        except ValueError:
+            pass # skip non-numerical folders if any
+            
+        scene = scene_path.name
+        
+        for gt_file in sorted(scene_path.glob("gt_*.png")):
+            # gt_file is like gt_100.png, we need to find ldr_100.png
+            frame_id = gt_file.stem.split('_')[1]
+            pred_name = f'ldr_{frame_id}.png'
+            pred_path = pred_root / scene / pred_name
+            
+            if pred_path.is_file():
+                yield str(pred_path), str(gt_file), f'{scene}/{frame_id}'
+            else:
                 tqdm.write(f'[skip] missing pred: {pred_path}')
 
 
@@ -285,8 +298,10 @@ def resolve_hdr_paths(gt_vis_path: str, pred_vis_path: str, hdr_gt_name: str, hd
 
 def parse_args():
     p = argparse.ArgumentParser(description='DeAltHDR evaluation: PSNR / SSIM / LPIPS / HDR-VDP-2')
-    p.add_argument('--dataroot',  type=str, default='', help='Dataset root containing Test/')
-    p.add_argument('--pred_dir',  type=str, default='', help='Predicted vis PNG folder')
+    p.add_argument('--gt_dir',  type=str, default='/hdd1/zhangshuohao/data/synthetic/test/gt', help='GT images root folder')
+    p.add_argument('--pred_dir',  type=str, default='/hdd1/zhangshuohao/data/syn_predicted', help='Predicted vis PNG folder')
+    p.add_argument('--start_scene', type=int, default=1, help='Starting scene number to evaluate')
+    p.add_argument('--end_scene', type=int, default=5, help='Ending scene number to evaluate')
     p.add_argument('--layout',    type=str, default='syn_test', choices=['syn_test', 'pair_list'])
     p.add_argument('--pair_file', type=str, default='', help='Two-column text file: pred_path gt_path')
     p.add_argument('--domain',    type=str, default='vis_uint16', choices=['vis_uint16', 'mulaw'],
@@ -294,7 +309,7 @@ def parse_args():
     p.add_argument('--gt_name',   type=str, default='rgb_vis_gt.png')
     p.add_argument('--crop',      type=int, default=10, help='Border pixels to crop')
     p.add_argument('--plus',      action='store_true', help='Use 16px crop instead of 10px')
-    p.add_argument('--device',    type=str, default='0', help='CUDA device index for LPIPS')
+    p.add_argument('--device',    type=str, default='6', help='CUDA device index for LPIPS')
     p.add_argument('--max_samples', type=int, default=-1, help='Max pairs to evaluate (-1 = all)')
     p.add_argument('--hdr_vdp',   action='store_true', help='Also compute HDR-VDP-2 Q score (Python impl, no MATLAB needed)')
     p.add_argument('--hdr_gt_name',   type=str, default='rgb_gt.hdr')
@@ -311,10 +326,10 @@ def main():
     crop = 16 if args.plus else args.crop
 
     if args.layout == 'syn_test':
-        if not args.dataroot or not args.pred_dir:
-            print('syn_test requires --dataroot and --pred_dir', file=sys.stderr)
+        if not args.gt_dir or not args.pred_dir:
+            print('syn_test requires --gt_dir and --pred_dir', file=sys.stderr)
             sys.exit(1)
-        pairs = list(iter_syn_test(args.dataroot, args.pred_dir, args.gt_name))
+        pairs = list(iter_syn_test(args.gt_dir, args.pred_dir, args.start_scene, args.end_scene))
     else:
         if not args.pair_file:
             print('pair_list requires --pair_file', file=sys.stderr)
